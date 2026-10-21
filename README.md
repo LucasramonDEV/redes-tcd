@@ -4,7 +4,7 @@ Este projeto implementa um protocolo de Transporte Confiável de Dados (TCD) na 
 
 Suporta os modos **Go-Back-N (GBN)** e **Selective Repeat (SR)**.
 
-## Arquitetura do Protocolo (Cabeçalho de 12 bytes)
+## Arquitetura do Protocolo (Cabeçalho de 10 bytes)
 - **Sequence Number (16 bits):** Número de sequência do pacote.
 - **Ack Number (16 bits):** Número de reconhecimento.
 - **Flags (8 bits):** Indicadores do tipo de pacote (SYN=1, ACK=2, NACK=4, FIN=8, DATA=16).

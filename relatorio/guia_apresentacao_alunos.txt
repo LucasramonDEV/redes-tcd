@@ -26,7 +26,7 @@ Resposta:
 "Nós não usamos JSON. Usamos uma biblioteca do Python chamada `struct`. Ela
 transforma as nossas variáveis (como o número do pacote, se é SYN ou ACK)
 diretamente em bytes puros, igual a um pacote de rede de verdade.
-O nosso cabeçalho total tem 12 bytes. Ele tem o número de sequência (Sequence Number),
+O nosso cabeçalho total tem 10 bytes. Ele tem o número de sequência (Sequence Number),
 o número de confirmação (ACK Number), as Flags (para dizer se é SYN, ACK, FIN),
 o tamanho da janela, e o Checksum. Atrás desse cabeçalho, colamos o payload
 (as letrinhas da mensagem do usuário)."

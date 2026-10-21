@@ -41,7 +41,7 @@ Nosso pacote possui:
 - 16 bits para o Tamanho Máximo de Texto
 - 16 bits para o Checksum
 
-TOTAL: 12 bytes de cabeçalho + até 4 bytes de Payload (16 bytes totais por pkt).
+TOTAL: 10 bytes de cabeçalho + até 4 bytes de Payload (14 bytes totais por pkt).
 
 ================================================================================
 3. O HANDSHAKE (Negociação Inicial)
