@@ -1,0 +1,113 @@
+================================================================================
+GUIA DE APRESENTAÇÃO – CHECKPOINT 3: Inserção de Erros e Perdas
+================================================================================
+
+Fala equipe! Este é o roteiro para a apresentação do CP3 ao monitor.
+Este é o código completo com tudo: handshake, dados, GBN, SR, checksum,
+RC4, e simulação de todas as falhas.
+
+--------------------------------------------------------------------------------
+1. RESUMO: O QUE ENTREGAMOS NO CP3?
+--------------------------------------------------------------------------------
+O CP3 é o código final. Tem tudo do CP2 mais:
+  - Checksum 16-bits feito à mão: detecta quando um pacote foi corrompido
+  - Criptografia RC4 feita à mão: o payload vai cifrado na rede
+  - NACK: quando o SR detecta corrupção, pede retransmissão imediata
+  - Simulação de perda de pacote (--drop)
+  - Simulação de corrupção de pacote (--error)
+  - Simulação de perda de ACK (--drop-ack no servidor)
+
+--------------------------------------------------------------------------------
+2. SE O MONITOR PERGUNTAR: "COMO FUNCIONA O CHECKSUM?"
+--------------------------------------------------------------------------------
+Resposta:
+"A gente implementou do zero o Internet Checksum de 16 bits, o mesmo
+algoritmo que o IP, UDP e TCP usam. Funciona assim: pegamos todos os bytes
+do pacote de 2 em 2, somamos tudo numa variável. Se a soma ultrapassar 16 bits,
+o que sobrou é somado de volta (isso se chama complemento de 1). No final,
+invertemos todos os bits com o operador NOT (~).
+
+Para verificar, quem recebe faz a mesma conta. Se o resultado não bater com
+o checksum que veio no cabeçalho, o pacote está corrompido."
+
+--------------------------------------------------------------------------------
+3. SE O MONITOR PERGUNTAR: "COMO FUNCIONA A CRIPTOGRAFIA RC4?"
+--------------------------------------------------------------------------------
+Resposta:
+"Implementamos o RC4 manualmente, sem nenhuma biblioteca pronta.
+É uma cifra de fluxo simétrica — a mesma função tanto cifra quanto decifra.
+
+Funciona em duas etapas com a chave 'redes_2026':
+  KSA: embaralha uma lista S de 0 a 255 usando a chave
+  PRGA: usa S para gerar um número diferente para cada byte da mensagem
+        e faz XOR desse número com o byte original
+
+O resultado é bytes que parecem lixo pra quem interceptar. O servidor
+aplica o mesmo processo com a mesma chave e recupera o texto original.
+
+A ordem no envio é: primeiro ciframos o payload, depois calculamos o
+checksum sobre o cabeçalho + payload cifrado. Assim o checksum protege
+a integridade do dado já na forma cifrada."
+
+--------------------------------------------------------------------------------
+4. SE O MONITOR PERGUNTAR: "O QUE ACONTECE QUANDO UM PACOTE É CORROMPIDO?"
+--------------------------------------------------------------------------------
+Resposta:
+"Depende do modo:
+
+No GBN: o servidor detecta o checksum inválido e descarta o pacote
+silenciosamente. Não manda nenhum ACK. O timer do cliente estoura e
+ele reenvia toda a janela — inclusive os fragmentos que já chegaram certos.
+É ineficiente, mas é o comportamento correto do GBN.
+
+No SR: o servidor detecta o checksum inválido e manda um NACK de volta.
+O cliente recebe o NACK e retransmite imediatamente só aquele fragmento,
+sem esperar o timer. Muito mais eficiente."
+
+--------------------------------------------------------------------------------
+5. SE O MONITOR PERGUNTAR: "O QUE É A DIFERENÇA ENTRE PERDA E CORRUPÇÃO?"
+--------------------------------------------------------------------------------
+Resposta:
+"Perda: o pacote simplesmente não chega. O receptor não sabe que foi enviado.
+A única forma de detectar é pelo timeout: se o ACK não vem em 2 segundos,
+assumimos que o pacote se perdeu e retransmitimos.
+
+Corrupção: o pacote chega, mas com bits alterados. É detectado na hora
+pelo checksum inválido no receptor, que reage imediatamente (NACK no SR
+ou descarte silencioso no GBN)."
+
+--------------------------------------------------------------------------------
+6. SE O MONITOR PERGUNTAR: "COMO VOCÊS SIMULARAM OS ERROS?"
+--------------------------------------------------------------------------------
+Resposta:
+"Temos quatro parâmetros de simulação:
+
+No cliente:
+  --drop 0.3  → 30% de chance de não enviar o pacote (simula perda)
+  --error 0.3 → 30% de chance de inverter bits do pacote antes de enviar
+                DEPOIS de calcular o checksum, então o checksum vai falhar
+
+No servidor:
+  --drop-ack 0.2   → 20% de chance de não enviar o ACK
+  --corrupt-ack 0.2 → 20% de chance de corromper o ACK antes de enviar"
+
+--------------------------------------------------------------------------------
+7. SE O MONITOR PERGUNTAR: "QUAL CENÁRIO DEMONSTRA O SR MELHOR QUE O GBN?"
+--------------------------------------------------------------------------------
+Resposta:
+"Com --error alto (ex: 50%), o GBN fica reenviando a janela inteira toda
+vez que um único pacote é corrompido — incluindo fragmentos que já chegaram
+certos. Com SR, o NACK garante que só o fragmento corrompido é reenviado
+imediatamente. Em redes com alta taxa de erro, o SR é muito mais eficiente."
+
+--------------------------------------------------------------------------------
+8. TODOS OS CENÁRIOS QUE O PROTOCOLO TRATA
+--------------------------------------------------------------------------------
+  ✅ Canal sem erros (GBN e SR)
+  ✅ Pacote DATA perdido → timeout → retransmissão
+  ✅ Pacote DATA corrompido → GBN descarta / SR envia NACK
+  ✅ ACK perdido → timeout → retransmissão
+  ✅ ACK corrompido → ignorado → timeout → retransmissão
+  ✅ Fragmento duplicado → servidor ignora/confirma sem reprocessar
+
+--- BOA SORTE NA APRESENTAÇÃO! ---

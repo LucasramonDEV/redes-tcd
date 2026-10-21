@@ -1,0 +1,95 @@
+================================================================================
+GUIA DE SOBREVIVÊNCIA PARA A APRESENTAÇÃO (LEIAM ANTES DE EXPLICAR AOS MONITORES)
+================================================================================
+
+Fala equipe! Este arquivo foi feito especialmente para quem não programou o código,
+mas precisa entender rapidamente o que está acontecendo para explicar aos monitores
+com segurança e não perder os pontos da Arguição Oral (25% da nota).
+
+Leiam como se fosse um roteiro de apresentação. Se o monitor perguntar sobre um
+assunto, basta olhar o tópico correspondente.
+
+--------------------------------------------------------------------------------
+1. RESUMO: O QUE O NOSSO CÓDIGO FAZ?
+--------------------------------------------------------------------------------
+Nós criamos um "mini-TCP" em cima do UDP. O UDP sozinho manda mensagens, mas
+não garante que elas chegam e nem se chegam na ordem certa. Nosso trabalho foi
+criar regras (no nível de aplicação, no Python) para garantir que a mensagem
+chegue perfeita, não importa o que aconteça na rede.
+Garantimos isso quebrando a mensagem de 30 letras em pedacinhos de 4 letras
+e botando um "cabeçalho" (header) com informações de controle.
+
+--------------------------------------------------------------------------------
+2. SE O MONITOR PERGUNTAR: "COMO FUNCIONA O FORMATO DO PACOTE DE VOCÊS?"
+--------------------------------------------------------------------------------
+Resposta:
+"Nós não usamos JSON. Usamos uma biblioteca do Python chamada `struct`. Ela
+transforma as nossas variáveis (como o número do pacote, se é SYN ou ACK)
+diretamente em bytes puros, igual a um pacote de rede de verdade.
+O nosso cabeçalho total tem 12 bytes. Ele tem o número de sequência (Sequence Number),
+o número de confirmação (ACK Number), as Flags (para dizer se é SYN, ACK, FIN),
+o tamanho da janela, e o Checksum. Atrás desse cabeçalho, colamos o payload
+(as letrinhas da mensagem do usuário)."
+
+--------------------------------------------------------------------------------
+3. SE O MONITOR PERGUNTAR: "QUAL A DIFERENÇA DO GBN PARA O SR NO CÓDIGO?"
+--------------------------------------------------------------------------------
+Resposta:
+"Temos os dois implementados.
+- No GBN (Go-Back-N): O cliente tem UM timer só. Se esse timer estourar, a gente
+pega a janela inteira e reenvia todos os pacotes de novo. O servidor é 'burro',
+se chegar um pacote fora de ordem, ele joga fora e diz 'Ei, me manda o que faltou'.
+- No SR (Selective Repeat): O cliente tem VÁRIOS timers (um pra cada pacote). Se um
+timer estourar, a gente reenvia SÓ AQUELE pacote. O servidor é 'inteligente', ele tem
+um buffer (dicionário no código) que guarda pacotes que chegam fora de ordem até
+o buraco ser preenchido."
+
+--------------------------------------------------------------------------------
+4. SE O MONITOR PERGUNTAR: "COMO FOI FEITO O PONTO EXTRA DA CRIPTOGRAFIA?"
+--------------------------------------------------------------------------------
+Resposta:
+"A gente fez na mão, sem usar biblioteca pronta (nada de pycrypto). Implementamos
+a cifra RC4 (Rivest Cipher 4). No código (arquivo protocol.py), pegamos uma
+chave (b'redes_2026'), usamos ela para embaralhar uma lista de 0 a 255.
+Depois, pegamos as letrinhas da mensagem e fazemos uma operação matemática
+chamada XOR (símbolo ^ no Python) com os números dessa lista. Se alguém espionar
+o pacote passando na rede, só vai ver lixo. O servidor faz o processo inverso
+pra revelar as letras."
+
+--------------------------------------------------------------------------------
+5. SE O MONITOR PERGUNTAR: "COMO FOI FEITO O PONTO EXTRA DO CHECKSUM?"
+--------------------------------------------------------------------------------
+Resposta:
+"Também fizemos do zero, sem bibliotecas prontas. Usamos a matemática do
+Internet Checksum de 16-bits. No arquivo protocol.py, a gente pega os bytes do
+pacote inteiro de 2 em 2 (16 bits) e vai somando tudo numa variável. Se a soma
+passar do tamanho limite (overflow), a gente pega o que sobrou e soma de volta.
+No final, invertemos os bits (operação NOT / ~).
+O servidor faz a mesma continha. Se a conta não bater, o pacote foi corrompido!"
+
+--------------------------------------------------------------------------------
+6. SE O MONITOR PERGUNTAR: "COMO VOCÊS SIMULARAM O ERRO?"
+--------------------------------------------------------------------------------
+Resposta:
+"Temos duas simulações no arquivo cliente (via terminal):
+- Corrupção (--error): Na hora de enviar o pacote, o cliente joga um dado. Se
+cair na porcentagem de erro, a gente suja os bytes do cabeçalho de propósito
+DEPOIS de ter calculado o Checksum. Quando bate no servidor, a matemática do
+Checksum falha e o servidor ignora (ou manda NACK no SR).
+- Perda/Drop (--drop): A gente simplesmente não aciona a função de enviar pelo
+socket. O pacote 'some'. Aí a gente prova que nosso Timeout funciona, porque
+o relógio do cliente estoura e ele reenvia sozinho."
+
+--------------------------------------------------------------------------------
+7. DICA DE OURO: PROBLEMAS COM THREADS
+--------------------------------------------------------------------------------
+Se o monitor perguntar sobre "como a IA ajudou vocês", a melhor resposta é:
+"A IA ajudou muito a resolver problemas de concorrência (Condição de Corrida).
+Nosso código usa Threads (uma parte do código fica recebendo mensagens e outra
+fica enviando ao mesmo tempo). Às vezes, o pacote e o ACK chegavam no exato
+mesmo milissegundo e as variáveis se embaralhavam. A IA ensinou a gente a usar
+o 'threading.Lock()' (aquele `with lock:` no código), que funciona como uma
+'chave' que impede duas partes do código de mexerem na mesma variável ao
+mesmo tempo."
+
+--- BOA SORTE NA APRESENTAÇÃO! ---

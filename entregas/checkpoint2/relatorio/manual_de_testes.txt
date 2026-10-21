@@ -1,0 +1,109 @@
+================================================================================
+MANUAL DE TESTES – CHECKPOINT 2: Protocolo Sem Erros
+================================================================================
+
+Este arquivo mostra como executar e testar o código do CP2.
+O escopo deste checkpoint é o protocolo completo em canal sem erros.
+
+--------------------------------------------------------------------------------
+1. REQUISITOS
+--------------------------------------------------------------------------------
+Python 3 nativo. Nenhuma dependência externa (sem pip install).
+Bibliotecas usadas: socket, struct, threading, time (todas built-in).
+
+--------------------------------------------------------------------------------
+2. COMO EXECUTAR
+--------------------------------------------------------------------------------
+Abra DOIS terminais na pasta checkpoint2/.
+
+TERMINAL 1 – Servidor:
+  python3 server.py --port 12000
+
+  Opções disponíveis:
+    --port      Porta UDP (padrão: 12000)
+    --window    Tamanho da janela (padrão: 5)
+    --max-text  Max texto aceito em bytes (padrão: 30)
+
+TERMINAL 2 – Cliente:
+  python3 client.py --server 127.0.0.1 --port 12000 --mode gbn
+
+  Opções disponíveis:
+    --server    IP do servidor (padrão: 127.0.0.1)
+    --port      Porta UDP (padrão: 12000)
+    --mode      gbn ou sr (padrão: gbn)
+
+NÃO EXISTEM as opções --error e --drop neste checkpoint.
+
+--------------------------------------------------------------------------------
+3. CENÁRIO 1 – ENVIO PERFEITO COM GBN
+--------------------------------------------------------------------------------
+TERMINAL 1:
+  python3 server.py
+
+TERMINAL 2:
+  python3 client.py --mode gbn
+  # Quando pedir a mensagem, digite: "Hello World"
+
+SAÍDA ESPERADA NO CLIENTE:
+  [*] Enviando SYN para ('127.0.0.1', 12000) (modo=GBN)...
+  [*] Handshake OK – janela=5 max_text=30
+
+  Digite a mensagem (máx 30 chars): Hello World
+  [*] 3 fragmento(s) para enviar.
+
+  [ENVIADO] SEQ=0 payload='Hell'
+  [ENVIADO] SEQ=1 payload='o Wo'
+  [ENVIADO] SEQ=2 payload='rld!'
+  [RECEBIDO] ACK 0
+  [RECEBIDO] ACK 1
+  [RECEBIDO] ACK 2
+
+  [*] Todos os fragmentos confirmados!
+  [*] FIN enviado. Aguardando FIN-ACK...
+  [*] Conexão encerrada pelo servidor.
+  [*] Cliente encerrado.
+
+SAÍDA ESPERADA NO SERVIDOR:
+  [GBN] Fragmento 0 entregue: 'Hell'
+  [GBN] Fragmento 1 entregue: 'o Wo'
+  [GBN] Fragmento 2 entregue: 'rld!'
+  ========================================
+  MENSAGEM COMPLETA RECEBIDA:
+    'Hello World'
+  ========================================
+
+--------------------------------------------------------------------------------
+4. CENÁRIO 2 – ENVIO PERFEITO COM SR
+--------------------------------------------------------------------------------
+TERMINAL 2:
+  python3 client.py --mode sr
+  # Quando pedir a mensagem, digite: "Testando SR"
+
+O comportamento é idêntico ao GBN neste canal sem erros.
+No servidor, as mensagens mostram "[SR]" em vez de "[GBN]".
+
+--------------------------------------------------------------------------------
+5. CENÁRIO 3 – MENSAGEM LONGA (MAIS FRAGMENTOS)
+--------------------------------------------------------------------------------
+TERMINAL 2:
+  python3 client.py --mode gbn
+  # Quando pedir a mensagem, digite: "Redes de Computadores 2026"
+  # (26 chars = 7 fragmentos: 4+4+4+4+4+4+2)
+
+O QUE VERIFICAR:
+  - O cliente divide corretamente em 7 fragmentos
+  - A janela de 5 limita o número de pacotes em voo
+  - O servidor reconstrói a mensagem completa e corretamente
+
+--------------------------------------------------------------------------------
+6. O QUE VERIFICAR PARA O MONITOR
+--------------------------------------------------------------------------------
+- Handshake com modo e janela corretos
+- Fragmentação em pedaços de máximo 4 bytes
+- Envio com janela deslizante (múltiplos fragmentos antes do ACK)
+- ACK cumulativo no GBN e individual no SR
+- Mensagem reconstruída corretamente no servidor
+- Encerramento via FIN / FIN-ACK
+
+NÃO EXISTEM neste checkpoint: --error, --drop, NACK, Checksum, RC4.
+O timeout de 2 segundos existe no código mas NÃO deve disparar.

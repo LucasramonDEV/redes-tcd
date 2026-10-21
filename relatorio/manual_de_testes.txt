@@ -1,0 +1,93 @@
+================================================================================
+MANUAL DE TESTES E EXECUÇÃO - TRABALHO I (REDES DE COMPUTADORES)
+================================================================================
+
+Este arquivo explica passo a passo como os monitores e alunos devem executar
+a aplicação para testar todos os requisitos exigidos pela especificação.
+
+--------------------------------------------------------------------------------
+1. COMO PREPARAR O AMBIENTE E COMANDOS POR SISTEMA OPERACIONAL
+--------------------------------------------------------------------------------
+O código foi escrito em Python 3 nativo, utilizando apenas bibliotecas built-in
+(`socket`, `struct`, `threading`, `time`, `random`). NENHUMA dependência externa
+precisa ser instalada (como pip install).
+
+* NO WINDOWS:
+Abra o Prompt de Comando (CMD) ou PowerShell e use `python`:
+  Servidor: python server.py --port 12000
+  Cliente:  python client.py --server 127.0.0.1 --port 12000 --mode gbn
+
+* NO MAC OS E LINUX (UBUNTU/DEBIAN):
+Abra o Terminal e use obrigatoriamente `python3` (já que 'python' costuma apontar para a versão 2 do sistema):
+  Servidor: python3 server.py --port 12000
+  Cliente:  python3 client.py --server 127.0.0.1 --port 12000 --mode gbn
+
+DICA: Mantenha sempre duas janelas do terminal lado a lado para rodar o cliente
+e servidor ao mesmo tempo!
+
+--------------------------------------------------------------------------------
+2. COMO EXECUTAR O CENÁRIO IDEAL (SEM ERROS)
+--------------------------------------------------------------------------------
+Objetivo: Testar o Handshake, fragmentação (máx 4 bytes) e entrega perfeita.
+
+PASSO A (Terminal 1 - Servidor):
+  python3 server.py --port 12000
+
+PASSO B (Terminal 2 - Cliente Go-Back-N):
+  python3 client.py --server 127.0.0.1 --port 12000 --mode gbn
+  # Quando pedir a mensagem, digite algo como: "Testando envio perfeito GBN"
+
+PASSO C (Terminal 2 - Cliente Selective Repeat):
+  python3 client.py --server 127.0.0.1 --port 12000 --mode sr
+  # Quando pedir a mensagem, digite algo como: "Testando envio perfeito SR"
+
+O QUE ESPERAR:
+- O cliente iniciará com janela 0 e enviará um SYN.
+- O servidor passa a SYN_RCVD e responderá com SYN+ACK informando que a janela oficial é 5.
+- O cliente envia o ACK final (3ª via) e o servidor loga "ACK final recebido.
+  Handshake completado! Estado = ESTABLISHED". Só então os dados começam.
+- O cliente dividirá a frase em blocos de no máximo 4 letras.
+- Você verá os pacotes sendo enviados um a um e os ACKs chegando.
+- Ao final, o cliente envia um FIN, o servidor imprime a mensagem completa
+  descriptografada na tela e encerra a conexão para aquele cliente.
+
+--------------------------------------------------------------------------------
+3. COMO TESTAR CORRUPÇÃO DE DADOS E NACK
+--------------------------------------------------------------------------------
+Objetivo: Provar que o Checksum e o comportamento de NACK (no SR) funcionam.
+
+No Terminal 2 (Cliente):
+  python3 client.py --server 127.0.0.1 --port 12000 --mode sr --error 0.5
+  (Isso força 50% de chance de um pacote ter os bits corrompidos antes do envio).
+
+O QUE ESPERAR:
+- O servidor vai imprimir "[!] Pacote corrompido! Ignorando (ou enviando NACK se SR)".
+- Como estamos no modo SR, o servidor mandará um pacote NACK para o cliente.
+- O cliente receberá o NACK e fará a retransmissão IMEDIATA do pacote, provando
+  a eficiência do Selective Repeat frente ao GBN.
+
+--------------------------------------------------------------------------------
+4. COMO TESTAR PERDA DE PACOTES (DROP) E TIMEOUTS
+--------------------------------------------------------------------------------
+Objetivo: Provar que os temporizadores (timers) estão funcionando para reenvio.
+
+No Terminal 2 (Cliente):
+  python3 client.py --server 127.0.0.1 --port 12000 --mode gbn --drop 0.4
+  (Isso simula 40% de chance do pacote simplesmente sumir da rede, não chegando ao servidor).
+
+O QUE ESPERAR:
+- O cliente avisará: "[!] SIMULAÇÃO DE PERDA: Pacote X dropado intencionalmente".
+- O servidor receberá pacotes fora de ordem (ex: recebeu 0, 1 e depois o 3).
+- O servidor GBN vai rejeitar o 3 e reenviar "ACK 1" (o último pacote correto).
+- O timer do cliente vai estourar: "[TIMEOUT] GBN: Estourou timer para pacote base 2. Reenviando janela..."
+- O cliente reenviará todos os pacotes da base até o final da janela.
+
+--------------------------------------------------------------------------------
+5. COMO VERIFICAR OS PONTOS EXTRAS (Criptografia e Checksum)
+--------------------------------------------------------------------------------
+Não é necessário rodar comandos diferentes. Durante qualquer execução:
+- O Checksum Manual é executado em TODOS os envios (linha 84 do protocol.py).
+- A Criptografia RC4 cifra toda a carga útil antes de ir para o socket (linha 76 do protocol.py).
+Se o professor pedir para provar, basta abrir o arquivo `protocol.py` e mostrar
+as funções `rc4_crypt()` (linha 19) e `calculate_checksum()` (linha 45) que foram
+feitas puramente com manipulação de bits em Python, sem bibliotecas externas.

@@ -1,0 +1,139 @@
+================================================================================
+MANUAL DE TESTES – CHECKPOINT 3: Inserção de Erros e Perdas
+================================================================================
+
+Este arquivo mostra como executar e testar TODOS os cenários do protocolo.
+Este é o código completo: handshake + dados + GBN/SR + checksum + RC4 + erros.
+
+--------------------------------------------------------------------------------
+1. REQUISITOS
+--------------------------------------------------------------------------------
+Python 3 nativo. Nenhuma dependência externa (sem pip install).
+Bibliotecas usadas: socket, struct, threading, time, random (todas built-in).
+
+--------------------------------------------------------------------------------
+2. COMO EXECUTAR
+--------------------------------------------------------------------------------
+Abra DOIS terminais na pasta checkpoint3/.
+
+TERMINAL 1 – Servidor:
+  python3 server.py [opções]
+
+  Opções:
+    --port          Porta UDP (padrão: 12000)
+    --window        Tamanho da janela (padrão: 5)
+    --max-text      Max texto aceito em bytes (padrão: 30)
+    --drop-ack PROB Probabilidade de perder um ACK/NACK (0.0 a 1.0)
+    --corrupt-ack P Probabilidade de corromper um ACK/NACK (0.0 a 1.0)
+
+TERMINAL 2 – Cliente:
+  python3 client.py [opções]
+
+  Opções:
+    --server  IP do servidor (padrão: 127.0.0.1)
+    --port    Porta UDP (padrão: 12000)
+    --mode    gbn ou sr (padrão: gbn)
+    --drop P  Probabilidade de perder um pacote DATA (0.0 a 1.0)
+    --error P Probabilidade de corromper um pacote DATA (0.0 a 1.0)
+
+--------------------------------------------------------------------------------
+3. CENÁRIO 1 – CANAL SEM ERROS (baseline, igual ao CP2)
+--------------------------------------------------------------------------------
+TERMINAL 1:  python3 server.py
+TERMINAL 2:  python3 client.py --mode gbn
+             # Mensagem sugerida: "Hello World"
+
+O QUE ESPERAR:
+  - Todos os fragmentos chegam e são confirmados sem retransmissão
+  - Checksum OK em todos os pacotes (campo CKSUM=OK nos logs)
+  - Payload chega decifrado corretamente no servidor
+
+--------------------------------------------------------------------------------
+4. CENÁRIO 2 – CORRUPÇÃO DE DADOS COM SR (demonstra NACK)
+--------------------------------------------------------------------------------
+TERMINAL 1:  python3 server.py
+TERMINAL 2:  python3 client.py --mode sr --error 0.5
+
+O QUE ESPERAR NO CLIENTE:
+  [SIMULAÇÃO] Pacote SEQ=1 CORROMPIDO
+
+O QUE ESPERAR NO SERVIDOR:
+  [!] Pacote CORROMPIDO (checksum inválido).
+  [SR] NACK 1 enviado.
+
+O QUE ESPERAR DE VOLTA NO CLIENTE:
+  [NACK] Servidor pediu retransmissão imediata de SEQ=1
+  [RE-ENVIO NACK] SEQ=1
+
+RESULTADO: fragmento retransmitido imediatamente, sem esperar timeout.
+A mensagem final ainda chega correta e completa no servidor.
+
+--------------------------------------------------------------------------------
+5. CENÁRIO 3 – CORRUPÇÃO DE DADOS COM GBN (demonstra descarte + timeout)
+--------------------------------------------------------------------------------
+TERMINAL 1:  python3 server.py
+TERMINAL 2:  python3 client.py --mode gbn --error 0.5
+
+O QUE ESPERAR NO SERVIDOR:
+  [!] Pacote CORROMPIDO (checksum inválido).
+  [GBN] Pacote descartado – cliente vai reenviar pela janela.
+
+O QUE ESPERAR NO CLIENTE (após ~2 segundos):
+  [TIMEOUT] GBN – reenviando janela a partir de SEQ=X...
+    [RE-ENVIO] SEQ=X
+    [RE-ENVIO] SEQ=X+1
+    ...
+
+RESULTADO: toda a janela é reenviada. Mais ineficiente que o SR, mas correto.
+
+--------------------------------------------------------------------------------
+6. CENÁRIO 4 – PERDA DE PACOTES (demonstra timeout por drop)
+--------------------------------------------------------------------------------
+TERMINAL 1:  python3 server.py
+TERMINAL 2:  python3 client.py --mode gbn --drop 0.4
+
+O QUE ESPERAR NO CLIENTE:
+  [SIMULAÇÃO] Pacote SEQ=2 PERDIDO (não enviado)
+  ... (após ~2 segundos) ...
+  [TIMEOUT] GBN – reenviando janela a partir de SEQ=2...
+
+MESMO TESTE COM SR:
+  python3 client.py --mode sr --drop 0.4
+
+  [SIMULAÇÃO] Pacote SEQ=2 PERDIDO (não enviado)
+  [TIMEOUT] SR – reenviando SEQ=2...   ← só o fragmento perdido
+
+--------------------------------------------------------------------------------
+7. CENÁRIO 5 – PERDA DE ACK (demonstra timeout por drop no servidor)
+--------------------------------------------------------------------------------
+TERMINAL 1:  python3 server.py --drop-ack 0.3
+TERMINAL 2:  python3 client.py --mode gbn
+
+O QUE ESPERAR NO SERVIDOR:
+  [SIMULAÇÃO] ACK/NACK X PERDIDO (não enviado)
+
+O QUE ESPERAR NO CLIENTE:
+  [TIMEOUT] GBN – reenviando janela...
+
+O servidor recebe o fragmento novamente mas trata a duplicata corretamente.
+
+--------------------------------------------------------------------------------
+8. CENÁRIO 6 – ESTRESSE (alta taxa de erro + SR)
+--------------------------------------------------------------------------------
+TERMINAL 1:  python3 server.py --drop-ack 0.2
+TERMINAL 2:  python3 client.py --mode sr --error 0.4 --drop 0.2
+
+Este cenário demonstra o SR com múltiplos mecanismos ativos ao mesmo tempo:
+NACK para corrupção, timeout para perda, retransmissão individual.
+A mensagem final deve sempre chegar correta e completa.
+
+--------------------------------------------------------------------------------
+9. O QUE VERIFICAR PARA O MONITOR
+--------------------------------------------------------------------------------
+  ✅ Campo CKSUM=OK / CKSUM=FAIL nos logs (checksum funcionando)
+  ✅ Payload cifrado trafegando (RC4 ativo em todos os envios)
+  ✅ NACK imediato no SR quando há corrupção
+  ✅ Descarte silencioso + timeout no GBN quando há corrupção
+  ✅ Timeout tanto para perda de pacote quanto para perda de ACK
+  ✅ Mensagem final sempre correta independente dos erros simulados
+  ✅ Fragmentos duplicados tratados corretamente (sem duplicar na mensagem)

@@ -1,0 +1,88 @@
+================================================================================
+Trabalho I - Redes de Computadores
+CHECKPOINT 1: Handshake & Sockets
+================================================================================
+
+Este documento descreve a lógica implementada no Checkpoint 1, cujo escopo
+é exclusivamente a conexão inicial entre cliente e servidor via socket UDP
+e a troca das informações de handshake.
+
+================================================================================
+1. REQUISITOS ATENDIDOS NESTE CHECKPOINT
+================================================================================
+- Conexão via Socket UDP: cliente e servidor se comunicam usando
+  socket.SOCK_DGRAM, sem TCP.
+- Handshake inicial: troca de pacote SYN (cliente) e SYN-ACK (servidor).
+- Modo de operação negociado: cliente informa se quer GBN ou SR.
+- Tamanho máximo do texto negociado: cliente sugere, servidor confirma
+  o valor que aceita (30 bytes por padrão).
+- Tamanho da janela negociado: servidor define e informa ao cliente
+  (5 segmentos por padrão).
+- Cabeçalho binário: pacotes usam struct.pack/unpack, não texto puro.
+
+NÃO fazem parte deste checkpoint: fragmentação, envio de dados, ACK de
+dados, GBN/SR, Checksum, Criptografia RC4, erros ou perdas simuladas.
+
+================================================================================
+2. O PROTOCOLO E O CABEÇALHO (protocol.py)
+================================================================================
+Usamos o módulo `struct` do Python para montar cabeçalhos binários, da
+mesma forma que protocolos reais (IP, UDP, TCP) fazem.
+
+Formato do cabeçalho no CP1 ("!B B H H"):
+  - 1 byte  : flags        (bit 0 = SYN, bit 1 = ACK)
+  - 1 byte  : mode         (0 = GBN, 1 = SR)
+  - 2 bytes : window_size  (janela de recepção do servidor)
+  - 2 bytes : max_text_size (limite máximo da mensagem)
+
+TOTAL: 6 bytes de cabeçalho, sem payload neste checkpoint.
+
+As flags usam bitmask (valor isolado por operação AND bit a bit), igual
+ao cabeçalho TCP. Isso permite combinar múltiplas flags num único byte:
+  FLAG_SYN = 0b00000001
+  FLAG_ACK = 0b00000010
+  SYN+ACK  = 0b00000011
+
+================================================================================
+3. O HANDSHAKE (Negociação Inicial)
+================================================================================
+Sequência de eventos:
+
+  Cliente                          Servidor
+     |--- SYN (mode, max_text) ------>|
+     |<-- SYN|ACK (mode, win, max) ---|
+     |         ESTABELECIDO           |
+
+1. O cliente cria um socket UDP e envia um pacote com FLAG_SYN, informando
+   o modo de operação desejado e o tamanho máximo de texto sugerido.
+   A janela_size enviada pelo cliente é 0 (o servidor é quem decide).
+
+2. O servidor recebe o SYN, extrai o modo e o max_text_size do cliente,
+   e responde com FLAG_SYN|FLAG_ACK, confirmando o modo, definindo a janela
+   como 5 e informando o max_text_size aceito.
+
+3. O cliente recebe o SYN-ACK, salva a janela e o max_text_size recebidos
+   e marca o estado como ESTABLISHED.
+
+O servidor aguarda via `recvfrom()`, que é bloqueante: só avança quando
+um datagrama chega. O cliente usa `settimeout(3.0)` para não travar
+eternamente caso o servidor não responda.
+
+================================================================================
+4. DECISÕES DE PROJETO
+================================================================================
+- Por que UDP e não TCP?
+  O objetivo do trabalho é implementar os mecanismos de confiabilidade
+  manualmente. O TCP já os fornece prontos, o que esvaziaria o aprendizado.
+
+- Por que o servidor define a janela?
+  Simula o controle de fluxo real, onde o receptor informa ao remetente
+  quanto buffer tem disponível (campo "receive window" do TCP).
+
+- Por que cabeçalho binário e não JSON/texto?
+  Eficiência e realismo. Protocolos de rede reais usam campos binários
+  de tamanho fixo. O `struct` do Python faz exatamente isso.
+
+- Por que o cliente usa settimeout e não espera para sempre?
+  Robustez básica: se o servidor não responder em 3 segundos, o cliente
+  encerra com mensagem de erro em vez de travar indefinidamente.

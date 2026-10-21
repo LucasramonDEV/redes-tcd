@@ -1,0 +1,137 @@
+================================================================================
+Trabalho I - Redes de Computadores
+CHECKPOINT 3: Inserção de Erros e Perdas (Código Completo)
+================================================================================
+
+Este documento descreve a implementação completa do protocolo TCD, incluindo
+tudo do CP1 e CP2 mais detecção de erros por checksum, criptografia RC4,
+simulação de perdas e corrupção, e o comportamento correto de GBN e SR
+diante de todas as falhas possíveis.
+
+================================================================================
+1. REQUISITOS ATENDIDOS NESTE CHECKPOINT
+================================================================================
+Herdados do CP1:
+  - Conexão via Socket UDP, handshake SYN / SYN-ACK
+
+Herdados do CP2:
+  - Fragmentação até 4 bytes, janela deslizante, GBN, SR, ACK, FIN
+
+Novos no CP3:
+  - PONTO EXTRA 1: Checksum 16-bits manual (Internet Checksum)
+  - PONTO EXTRA 2: Criptografia simétrica RC4 manual
+  - FLAG_NACK: retransmissão imediata no SR quando há corrupção
+  - Simulação de perda de pacote (--drop no cliente)
+  - Simulação de corrupção de pacote (--error no cliente)
+  - Simulação de perda de ACK (--drop-ack no servidor)
+  - Simulação de corrupção de ACK (--corrupt-ack no servidor)
+  - Todos os comportamentos de GBN e SR diante de erros demonstrados
+
+================================================================================
+2. O PROTOCOLO E O CABEÇALHO (protocol.py)
+================================================================================
+Formato do cabeçalho no CP3 ("!H H B B H H H"):
+  - 2 bytes : seq_num
+  - 2 bytes : ack_num
+  - 1 byte  : flags  (SYN, ACK, NACK, FIN, DATA em bitmask)
+  - 1 byte  : mode
+  - 2 bytes : window_size
+  - 2 bytes : max_text_size
+  - 2 bytes : checksum  ← NOVO no CP3
+
+TOTAL: 12 bytes de cabeçalho + até 4 bytes de payload = 16 bytes por pacote.
+
+Nova flag em relação ao CP2:
+  FLAG_NACK = bit 2  →  confirmação negativa, pede retransmissão imediata (SR)
+
+================================================================================
+3. PONTO EXTRA 1: CHECKSUM 16-BITS (INTERNET CHECKSUM)
+================================================================================
+Implementação manual do mesmo algoritmo usado pelo IP, UDP e TCP.
+
+Como funciona:
+  1. Divide os dados em palavras de 16 bits (2 bytes cada)
+  2. Soma todas as palavras usando aritmética de complemento de 1
+     (carry around: overflow de 16 bits é somado de volta ao acumulador)
+  3. Inverte todos os bits (NOT bitwise)
+  4. Resultado é o campo checksum
+
+Para verificar na recepção:
+  - Recalcula o checksum com o campo checksum zerado
+  - Compara com o valor recebido
+  - Se diferir: is_corrupted = True → pacote descartado
+
+Escopo: o checksum é calculado sobre o cabeçalho inteiro + payload cifrado,
+garantindo detecção de corrupção em qualquer parte do pacote.
+
+================================================================================
+4. PONTO EXTRA 2: CRIPTOGRAFIA RC4 (IMPLEMENTAÇÃO MANUAL)
+================================================================================
+RC4 (Rivest Cipher 4) é uma cifra de fluxo simétrica. A mesma função
+cifra e decifra — basta aplicá-la duas vezes com a mesma chave.
+
+Chave usada: b"redes_2026"
+
+Etapas:
+  KSA (Key-Scheduling Algorithm):
+    - Inicializa S[0..255] com valores de 0 a 255
+    - Embaralha S usando a chave
+
+  PRGA (Pseudo-Random Generation Algorithm):
+    - Gera um keystream byte a byte a partir de S
+    - XOR de cada byte do dado com o byte do keystream = cifrado/decifrado
+
+Ordem de operações ao enviar:
+  1. rc4_crypt(payload)         → payload cifrado
+  2. calculate_checksum(header_zerado + payload_cifrado) → checksum
+  3. Monta o pacote final com checksum correto
+
+Ordem de operações ao receber:
+  1. verify_checksum(header_zerado + payload_cifrado, recebido) → integridade
+  2. rc4_crypt(payload_cifrado)  → payload original
+
+================================================================================
+5. SIMULAÇÃO DE ERROS E PERDAS
+================================================================================
+No cliente (--drop, --error):
+  --drop PROB   : probabilidade de NÃO enviar o pacote (simula perda na rede)
+  --error PROB  : probabilidade de corromper o primeiro byte do pacote
+                  APÓS calcular o checksum (simula ruído de canal)
+
+No servidor (--drop-ack, --corrupt-ack):
+  --drop-ack PROB    : probabilidade de NÃO enviar o ACK/NACK (perda no retorno)
+  --corrupt-ack PROB : probabilidade de corromper o ACK antes de enviar
+
+================================================================================
+6. COMPORTAMENTO DIANTE DE ERROS (TODOS OS CENÁRIOS)
+================================================================================
+Pacote DATA perdido:
+  GBN: timeout estoura → cliente reenvia toda a janela
+  SR:  timeout estoura → cliente reenvia só o fragmento perdido
+
+Pacote DATA corrompido (checksum falha no servidor):
+  GBN: servidor descarta, nenhum ACK → timeout → cliente reenvia janela
+  SR:  servidor envia NACK → cliente retransmite imediatamente
+
+ACK perdido:
+  GBN: timeout estoura → cliente reenvia janela
+  SR:  timeout do fragmento específico → cliente reenvia só aquele
+
+ACK corrompido (checksum falha no cliente):
+  GBN: ACK ignorado → timeout → reenvia janela
+  SR:  ACK ignorado → timeout do fragmento → reenvia o fragmento
+
+Fragmento duplicado (chegou novamente após retransmissão):
+  GBN: servidor descarta (seq < expected_seq)
+  SR:  servidor confirma novamente mas não reprocessa (já está no buffer)
+
+================================================================================
+7. DECISÕES DE PROJETO
+================================================================================
+- Checksum calculado sobre payload CIFRADO: protege a integridade do dado
+  já na forma que vai trafegar na rede.
+- NACK somente no SR: o GBN classicamente não usa NACK — o timeout é
+  suficiente e o custo de reenviar a janela toda é o comportamento esperado.
+- Handshake não é afetado pela simulação de erros: os pacotes SYN e
+  FIN nunca passam pela função send() com drop/error, garantindo que a
+  conexão sempre se estabelece e encerra corretamente nos testes.

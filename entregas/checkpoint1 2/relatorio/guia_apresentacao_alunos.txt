@@ -1,0 +1,84 @@
+================================================================================
+GUIA DE APRESENTAÇÃO – CHECKPOINT 1: Handshake & Sockets
+================================================================================
+
+Fala equipe! Este arquivo é o roteiro para a apresentação do CP1 ao monitor.
+Leiam antes. Se o monitor perguntar algo, o tópico correspondente está aqui.
+
+--------------------------------------------------------------------------------
+1. RESUMO: O QUE ENTREGAMOS NO CP1?
+--------------------------------------------------------------------------------
+Neste checkpoint, implementamos apenas a fase de CONEXÃO entre o cliente e
+o servidor. Ainda não enviamos dados de verdade — apenas negociamos os
+parâmetros que vão ser usados depois.
+
+É como um aperto de mão antes de começar a conversar:
+  - Cliente diz: "Quero usar o modo GBN, aceita mensagens de até 30 letras?"
+  - Servidor diz: "Ok, modo GBN confirmado, janela de 5, aceito até 30 letras."
+  - Conexão estabelecida.
+
+--------------------------------------------------------------------------------
+2. SE O MONITOR PERGUNTAR: "POR QUE VOCÊS USAM UDP E NÃO TCP?"
+--------------------------------------------------------------------------------
+Resposta:
+"O trabalho pede que a gente implemente a confiabilidade manualmente.
+O TCP já faz isso automaticamente — ACK, retransmissão, controle de fluxo.
+Se usássemos TCP, não teríamos nada para implementar. Com UDP, a gente
+constrói cada peça do zero, que é o objetivo do trabalho."
+
+--------------------------------------------------------------------------------
+3. SE O MONITOR PERGUNTAR: "O QUE É O HANDSHAKE DE VOCÊS?"
+--------------------------------------------------------------------------------
+Resposta:
+"É uma troca de dois pacotes antes de começar a enviar dados.
+O cliente manda um pacote com a flag SYN dizendo qual modo quer usar
+(Go-Back-N ou Selective Repeat) e qual o tamanho máximo de mensagem.
+O servidor responde com SYN+ACK confirmando o modo, e informando o tamanho
+da janela de recepção (que é 5) e o max de texto que aceita (30 bytes).
+Só depois disso o cliente sabe os parâmetros certos para começar a enviar."
+
+--------------------------------------------------------------------------------
+4. SE O MONITOR PERGUNTAR: "COMO O PACOTE É MONTADO?"
+--------------------------------------------------------------------------------
+Resposta:
+"A gente não usa JSON nem texto. Usamos a biblioteca `struct` do Python,
+que empacota nossas variáveis diretamente em bytes binários, igual a um
+pacote de rede real. O nosso cabeçalho do CP1 tem 6 bytes:
+  - 1 byte de flags (SYN ou ACK, usando bitmask)
+  - 1 byte para o modo (0 = GBN, 1 = SR)
+  - 2 bytes para o tamanho da janela
+  - 2 bytes para o tamanho máximo do texto
+Não tem payload neste checkpoint porque ainda não enviamos dados."
+
+--------------------------------------------------------------------------------
+5. SE O MONITOR PERGUNTAR: "O QUE É BITMASK NAS FLAGS?"
+--------------------------------------------------------------------------------
+Resposta:
+"É uma técnica para guardar várias informações booleans num único byte.
+A flag SYN é o bit 0 (valor 1), a flag ACK é o bit 1 (valor 2).
+Quando o servidor responde com SYN+ACK, o byte de flags vale 3 (1+2).
+Para checar se tem SYN, fazemos `flags & FLAG_SYN`. Se o resultado for
+diferente de zero, o bit está ligado. É o mesmo sistema que o TCP usa."
+
+--------------------------------------------------------------------------------
+6. SE O MONITOR PERGUNTAR: "POR QUE O SERVIDOR DEFINE A JANELA E NÃO O CLIENTE?"
+--------------------------------------------------------------------------------
+Resposta:
+"Porque a janela representa o buffer de recepção do servidor — quantos
+pacotes ele consegue guardar antes de processar. Quem tem o buffer é o
+servidor, então faz sentido ele decidir o tamanho. É o mesmo conceito
+do campo 'receive window' do TCP, onde o receptor avisa o remetente
+quanto espaço tem disponível."
+
+--------------------------------------------------------------------------------
+7. O QUE NÃO EXISTE AINDA NESTE CHECKPOINT (para não confundir)
+--------------------------------------------------------------------------------
+- NÃO há fragmentação de mensagem
+- NÃO há envio de dados (FLAG_DATA)
+- NÃO há GBN ou SR funcionando (só negociamos qual usar)
+- NÃO há Checksum nem Criptografia RC4
+- NÃO há simulação de erros ou perdas
+
+Tudo isso vem nos checkpoints 2 e 3.
+
+--- BOA SORTE NA APRESENTAÇÃO! ---

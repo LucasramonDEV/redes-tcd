@@ -1,0 +1,99 @@
+================================================================================
+MANUAL DE TESTES – CHECKPOINT 1: Handshake & Sockets
+================================================================================
+
+Este arquivo mostra como executar e testar o código do CP1.
+O escopo deste checkpoint é exclusivamente o handshake inicial.
+
+--------------------------------------------------------------------------------
+1. REQUISITOS
+--------------------------------------------------------------------------------
+Python 3 nativo. Nenhuma dependência externa (sem pip install).
+Bibliotecas usadas: socket, struct (ambas built-in).
+
+--------------------------------------------------------------------------------
+2. COMO EXECUTAR
+--------------------------------------------------------------------------------
+Abra DOIS terminais na pasta checkpoint1/.
+
+TERMINAL 1 – Servidor:
+  python3 server.py --port 12000
+
+  Opções disponíveis:
+    --port      Porta UDP (padrão: 12000)
+    --window    Tamanho da janela a ser informado ao cliente (padrão: 5)
+    --max-text  Max texto aceito em bytes (padrão: 30)
+
+TERMINAL 2 – Cliente:
+  python3 client.py --server 127.0.0.1 --port 12000 --mode gbn
+
+  Opções disponíveis:
+    --server    IP do servidor (padrão: 127.0.0.1)
+    --port      Porta UDP (padrão: 12000)
+    --mode      Modo de operação: gbn ou sr (padrão: gbn)
+    --max-text  Tamanho máximo do texto sugerido ao servidor (padrão: 30)
+
+--------------------------------------------------------------------------------
+3. CENÁRIO 1 – HANDSHAKE COM MODO GBN
+--------------------------------------------------------------------------------
+TERMINAL 1:
+  python3 server.py
+
+TERMINAL 2:
+  python3 client.py --mode gbn
+
+SAÍDA ESPERADA NO SERVIDOR:
+  [*] Servidor aguardando na porta 12000...
+      Janela configurada : 5
+      Max texto          : 30 bytes
+
+  [RECEBIDO de ('127.0.0.1', XXXXX)] [Packet FLAGS=SYN MODE=GBN WIN=0 MAX_TEXT=30]
+  [*] Handshake iniciado pelo cliente.
+      Modo solicitado    : GBN
+      Max texto (cliente): 30 bytes
+  [ENVIADO  para ('127.0.0.1', XXXXX)] [Packet FLAGS=SYN|ACK MODE=GBN WIN=5 MAX_TEXT=30]
+  [*] Handshake concluído com sucesso!
+
+SAÍDA ESPERADA NO CLIENTE:
+  [*] Enviando SYN para ('127.0.0.1', 12000)...
+      Modo solicitado    : GBN
+      Max texto sugerido : 30 bytes
+
+  [RECEBIDO] [Packet FLAGS=SYN|ACK MODE=GBN WIN=5 MAX_TEXT=30]
+
+  [*] Handshake concluído com sucesso!
+      Modo confirmado    : GBN
+      Janela definida    : 5
+      Max texto aceito   : 30 bytes
+
+--------------------------------------------------------------------------------
+4. CENÁRIO 2 – HANDSHAKE COM MODO SR
+--------------------------------------------------------------------------------
+TERMINAL 2:
+  python3 client.py --mode sr
+
+O comportamento é idêntico ao cenário 1, mas o campo MODE exibe "SR".
+
+--------------------------------------------------------------------------------
+5. CENÁRIO 3 – SERVIDOR FORA DO AR (TESTE DE TIMEOUT)
+--------------------------------------------------------------------------------
+Execute o cliente SEM iniciar o servidor:
+  python3 client.py --mode gbn
+
+SAÍDA ESPERADA:
+  [*] Enviando SYN para ('127.0.0.1', 12000)...
+  [!] Timeout: servidor não respondeu ao SYN.
+
+O cliente aguarda 3 segundos, não recebe SYN-ACK e encerra com erro.
+Isso demonstra que o cliente não trava indefinidamente.
+
+--------------------------------------------------------------------------------
+6. O QUE VERIFICAR PARA O MONITOR
+--------------------------------------------------------------------------------
+- O pacote SYN chega com o modo correto (GBN=0 ou SR=1)
+- O servidor responde com SYN+ACK (flags = 3) com janela = 5
+- O cliente imprime os parâmetros recebidos corretamente
+- O cliente encerra com timeout se o servidor não responder
+
+NÃO EXISTE neste checkpoint: envio de dados, fragmentação, ACK de dados,
+GBN/SR em ação, checksum, RC4, simulação de erros ou perdas.

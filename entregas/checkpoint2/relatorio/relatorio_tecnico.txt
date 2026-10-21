@@ -1,0 +1,120 @@
+================================================================================
+Trabalho I - Redes de Computadores
+CHECKPOINT 2: Protocolo Sem Erros
+================================================================================
+
+Este documento descreve a lógica implementada no Checkpoint 2, cujo escopo
+é o protocolo completo funcionando em canal sem erros e sem perdas:
+handshake (CP1) + fragmentação + janela deslizante (GBN/SR) + ACK + FIN.
+
+================================================================================
+1. REQUISITOS ATENDIDOS NESTE CHECKPOINT
+================================================================================
+Herdados do CP1:
+  - Conexão via Socket UDP
+  - Handshake SYN / SYN-ACK com modo, janela e max_text_size
+
+Novos no CP2:
+  - Fragmentação da mensagem em pedaços de até 4 bytes
+  - Número de sequência por fragmento (seq_num)
+  - Envio com janela deslizante: Go-Back-N e Selective Repeat
+  - ACK por fragmento recebido pelo servidor
+  - Retransmissão por timeout (mecanismo de segurança, não deve disparar)
+  - Encerramento com FIN / FIN-ACK
+
+NÃO fazem parte deste checkpoint: Checksum manual, Criptografia RC4,
+NACK, simulação de erros, simulação de perdas.
+
+================================================================================
+2. O PROTOCOLO E O CABEÇALHO (protocol.py)
+================================================================================
+Formato do cabeçalho no CP2 ("!H H B B H H"):
+  - 2 bytes : seq_num       (número de sequência do fragmento)
+  - 2 bytes : ack_num       (número sendo confirmado)
+  - 1 byte  : flags         (SYN, ACK, FIN, DATA em bitmask)
+  - 1 byte  : mode          (0 = GBN, 1 = SR)
+  - 2 bytes : window_size
+  - 2 bytes : max_text_size
+
+TOTAL: 10 bytes de cabeçalho + até 4 bytes de payload = 14 bytes por pacote.
+
+Novas flags em relação ao CP1:
+  FLAG_FIN  = bit 3  →  encerramento da conexão
+  FLAG_DATA = bit 4  →  pacote carrega fragmento de dados
+
+================================================================================
+3. FRAGMENTAÇÃO
+================================================================================
+A mensagem do usuário é dividida em pedaços de no máximo 4 bytes (exigência
+do enunciado). Cada pedaço vira um pacote DATA com seu próprio seq_num.
+
+Exemplo: mensagem "Hello World" (11 bytes)
+  SEQ=0  payload="Hell"
+  SEQ=1  payload="o Wo"
+  SEQ=2  payload="rld!"
+  Total: 3 fragmentos
+
+A fragmentação usa slicing de string com passo MAX_PAYLOAD_SIZE (= 4).
+
+================================================================================
+4. JANELA DESLIZANTE
+================================================================================
+Em vez de enviar 1 fragmento e esperar o ACK antes do próximo (stop-and-wait),
+a janela deslizante permite ter até `window_size` fragmentos "em voo"
+simultaneamente. Isso aumenta o aproveitamento da rede.
+
+  base       = menor seq não confirmado
+  next_seq   = próximo seq a enviar
+  window_size = máximo de pacotes em voo (= 5, definido pelo servidor)
+
+Condição de envio: next_seq < base + window_size AND next_seq < total
+
+A janela "desliza" à medida que ACKs chegam e a base avança.
+
+================================================================================
+5. MODOS DE OPERAÇÃO
+================================================================================
+Go-Back-N (GBN):
+  - Um único timer vinculado ao pacote mais antigo sem ACK (base).
+  - ACK é CUMULATIVO: ACK N confirma todos os fragmentos de 0 até N.
+  - Se o timer estoura: cliente reenvia toda a janela (base até next_seq-1).
+  - Servidor: rejeita fragmentos fora de ordem e reenvia o último ACK válido.
+
+Selective Repeat (SR):
+  - Um timer por pacote (dicionário `timers` no cliente).
+  - ACK é INDIVIDUAL: ACK N confirma apenas o fragmento N.
+  - Se o timer estoura: cliente reenvia só aquele fragmento.
+  - Servidor: guarda fragmentos fora de ordem num buffer (dict por seq_num)
+    e desliza a janela quando o fragmento esperado chega.
+
+No CP2, sem erros e sem perdas, GBN e SR se comportam identicamente —
+todos os fragmentos chegam na ordem, sem retransmissões.
+
+================================================================================
+6. THREADING (POR QUE USAMOS DUAS THREADS)
+================================================================================
+O cliente precisa fazer duas coisas ao mesmo tempo:
+  - Enviar fragmentos no loop principal
+  - Receber ACKs do servidor em paralelo
+
+Solução: `threading.Thread` para a thread de recepção + `threading.Lock`
+para proteger as variáveis de estado compartilhadas (base, acks, timers)
+contra condição de corrida (race condition).
+
+================================================================================
+7. ENCERRAMENTO (FIN / FIN-ACK)
+================================================================================
+Após todos os fragmentos serem confirmados:
+  1. Cliente envia FLAG_FIN
+  2. Servidor imprime a mensagem completa reconstruída
+  3. Servidor responde FLAG_FIN | FLAG_ACK
+  4. Cliente encerra o socket
+
+================================================================================
+8. DECISÕES DE PROJETO
+================================================================================
+- Timeout de 2s existe mas não deve disparar no CP2 (canal perfeito).
+  Foi mantido porque o código do CP3 herda esta estrutura.
+- SEQ começa em 0 por convenção.
+- O servidor reconstrói a mensagem concatenando os payloads na ordem
+  correta (GBN: sempre em ordem; SR: ordena via buffer).

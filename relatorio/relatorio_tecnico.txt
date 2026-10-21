@@ -1,0 +1,123 @@
+================================================================================
+Trabalho I - Redes de Computadores
+================================================================================
+
+Este documento descreve detalhadamente a lógica teórica e prática adotada na
+construção da aplicação cliente-servidor para simular o Transporte Confiável de
+Dados (TCD) em Python. A aplicação implementa funcionalidades da camada de
+transporte (como Go-Back-N, Selective Repeat, Checksum e Criptografia) na
+camada de aplicação usando UDP.
+
+================================================================================
+1. REQUISITOS ATENDIDOS
+================================================================================
+- Conexão Cliente-Servidor: Realizada através de Sockets UDP (socket.SOCK_DGRAM)
+- Limite Máximo de Caracteres: Definido por padrão como 30 e negociado durante
+  o handshake entre cliente e servidor.
+- Fragmentação: Todo payload (texto da mensagem) tem estritamente até 4 bytes.
+- Cabeçalhos anexados: Ao payload de 4 bytes, é anexado um cabeçalho customizado.
+- Soma de verificação (Checksum): Implementação manual do Internet Checksum
+  de 16 bits, feita em complemento de 1, validada tanto na origem quanto no
+  destino.
+- Criptografia Simétrica RC4: O payload dos pacotes (mensagens) é criptografado
+  via RC4 (feito à mão) antes de ser somado no checksum e enviado.
+- Janelamento, GBN, SR e Controle de Fluxo: Janela dinâmica de 5 segmentos, e o
+  sistema permite envio usando tanto Go-Back-N quanto Selective Repeat.
+- Erros Simulados: Através de um argumento `--error`, o cliente altera as flags
+  do pacote sem recalcular o Checksum, gerando um descarte no servidor e timeout.
+
+================================================================================
+2. O PROTOCOLO PROPOSTO E CABEÇALHOS (protocol.py)
+================================================================================
+Decidimos que as requisições teriam a semântica mais próxima possível de um
+header real como o do TCP/UDP, mas modelado para nosso cenário.
+Usamos o pacote `struct` em Python (`!H H B B H H`) para organizar bits.
+Nosso pacote possui:
+- 16 bits para Sequence Number (Número de Sequência daquele pacote)
+- 16 bits para Acknowledgment Number (Número de Reconhecimento)
+- 8 bits para Flags (SYN, ACK, NACK, FIN, DATA) isoladas bit a bit.
+- 4 bits para Modo (0=GBN, 1=SR)
+- 4 bits para o Tamanho da Janela de recepção
+- 16 bits para o Tamanho Máximo de Texto
+- 16 bits para o Checksum
+
+TOTAL: 12 bytes de cabeçalho + até 4 bytes de Payload (16 bytes totais por pkt).
+
+================================================================================
+3. O HANDSHAKE (Negociação Inicial)
+================================================================================
+Handshake de 3 vias (SYN -> SYN-ACK -> ACK):
+1. O Cliente envia SYN (seq = ISN_c sorteado), informando o Modo (GBN ou SR) e o
+   Max Text. Estado do cliente: SYN_SENT.
+2. O Servidor responde SYN+ACK (seq = ISN_s, ack = ISN_c + 1), forçando a Janela
+   para 5. Estado do servidor: SYN_RCVD (a conexão AINDA NÃO está estabelecida).
+3. O Cliente valida ack == ISN_c + 1, envia o ACK final (seq = ISN_c + 1,
+   ack = ISN_s + 1) e vai para ESTABLISHED. O Servidor só vai para ESTABLISHED
+   ao receber e validar esse ACK.
+
+Confiabilidade do handshake (UDP pode perder pacotes):
+- SYN ou SYN-ACK perdido: o cliente retransmite o SYN (até 4 tentativas, 1 s).
+- ACK final perdido: o servidor mantém um timer em SYN_RCVD e reenvia o SYN-ACK
+  (até 5 vezes; depois abandona a conexão semiaberta). Ao receber um SYN-ACK
+  duplicado, o cliente reenvia o ACK final.
+- DATA que chegue em SYN_RCVD é descartado e provoca reenvio do SYN-ACK.
+
+================================================================================
+4. MODOS DE OPERAÇÃO (GBN vs SR)
+================================================================================
+* Go-Back-N (GBN):
+O cliente envia até 5 pacotes sem esperar resposta, com um único timer
+vinculado ao pacote mais antigo não confirmado ("base"). Quando chega um ACK,
+a base avança cumulativamente (se recebeu ACK 3, todos até 3 estão garantidos).
+Se o timer estoura, TODOS os pacotes a partir da "base" são reenviados.
+O servidor no GBN rejeita pacotes fora de ordem, mandando o ACK antigo esperado.
+
+* Selective Repeat (SR):
+Cada pacote enviado possui um timer individual associado no cliente.
+O servidor aceita pacotes fora de ordem e mantém um buffer para guardá-los.
+Quando o servidor confirma um pacote via ACK (reconhecimento individual, não
+cumulativo), o cliente marca esse pacote específico como ACKed, parando seu
+timer específico. Se a base (o pacote mais antigo) foi confirmada, a janela
+desliza.
+
+================================================================================
+5. PONTO EXTRA 1: CHECKSUM (INTERNET CHECKSUM 16-BITS)
+================================================================================
+Para detectar corrupção nos pacotes (tanto no cabeçalho quanto no payload),
+implementamos o cálculo matemático oficial de Checksum sem bibliotecas:
+1. Adicionamos padding de zero caso os bytes sejam ímpares (para completar 16).
+2. Lemos a cada 16 bits (uma "palavra" ou word).
+3. Somamos iterativamente essas palavras usando um acumulador de 32 bits.
+4. Qualquer estouro (overflow de 16 bits que invade as casas 17-32) é somado
+   de volta ao limite de 16 bits (complemento de um / wrap around).
+5. No final aplicamos uma negação bitwise (NOT ou `~`) para obter o Checksum.
+
+Para verificar, quem recebe recalcula o mesmo valor e compara.
+Se for diferente (is_corrupted = True), o pacote é descartado sem processar ACKs,
+disparando timeout na origem.
+
+================================================================================
+6. PONTO EXTRA 2: CRIPTOGRAFIA SIMÉTRICA RC4
+================================================================================
+Para impedir a visualização em texto plano do conteúdo da aplicação no Socket UDP,
+implementamos o RC4 (Rivest Cipher 4) sem bibliotecas (ponto extra da disciplina).
+A chave definida na aplicação é a string byte `b"redes_2026"`.
+A cifra ocorre em duas etapas:
+- KSA (Key-scheduling algorithm): Pega a chave original e embaralha um array `S`
+  (State array) de 0 a 255.
+- PRGA (Pseudo-random generation algorithm): Produz uma chave keystream de
+  tamanho infinito que, quando mesclada ao Payload por um XOR bit-a-bit (`^`),
+  criptografa os dados. Para descriptografar do outro lado, é só rodar a mesma
+  função usando a mesma chave `redes_2026`.
+
+================================================================================
+7. SIMULAÇÃO DE ERRO E ENCERRAMENTO (FIN)
+================================================================================
+O cliente permite inserir uma probabilidade de erro (via `--error 0.5` para 50%).
+Se sorteado, alteramos explicitamente um byte do cabeçalho (flags = 0xFF) após
+a construção do pacote e do Checksum, enviando à rede um binário inválido.
+No lado Servidor, o `verify_checksum` reage negativamente e ignora o pacote.
+
+Por fim, após todos os fragmentos serem confirmados, o Cliente envia um pacote
+FIN, o Servidor mostra toda a mensagem reconstruída ordenadamente de volta
+ao monitor, envia o ACK final e encerra a conexão.

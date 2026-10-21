@@ -1,0 +1,93 @@
+================================================================================
+GUIA DE APRESENTAÇÃO – CHECKPOINT 2: Protocolo Sem Erros
+================================================================================
+
+Fala equipe! Este é o roteiro para a apresentação do CP2 ao monitor.
+Neste checkpoint temos o protocolo funcionando em canal perfeito (sem erros).
+
+--------------------------------------------------------------------------------
+1. RESUMO: O QUE ENTREGAMOS NO CP2?
+--------------------------------------------------------------------------------
+O CP2 tem tudo do CP1 mais o envio real de dados.
+
+O fluxo completo agora é:
+  1. Handshake (igual ao CP1): cliente e servidor negociam modo e janela
+  2. Cliente fragmenta a mensagem em pedaços de até 4 letras
+  3. Cliente envia os fragmentos usando janela deslizante (GBN ou SR)
+  4. Servidor confirma cada fragmento com ACK
+  5. Quando tudo foi confirmado, cliente envia FIN e servidor mostra
+     a mensagem completa reconstruída
+
+O canal neste checkpoint é perfeito: nada se perde nem se corrompe.
+
+--------------------------------------------------------------------------------
+2. SE O MONITOR PERGUNTAR: "O QUE É FRAGMENTAÇÃO?"
+--------------------------------------------------------------------------------
+Resposta:
+"A gente pega a mensagem do usuário e quebra em pedaços de até 4 bytes.
+Por exemplo, 'Hello World' vira três fragmentos: 'Hell', 'o Wo', 'rld!'.
+Cada fragmento tem um número de sequência (SEQ 0, SEQ 1, SEQ 2).
+Isso permite que o servidor saiba a ordem certa e detecte se faltou algum."
+
+--------------------------------------------------------------------------------
+3. SE O MONITOR PERGUNTAR: "O QUE É JANELA DESLIZANTE?"
+--------------------------------------------------------------------------------
+Resposta:
+"Em vez de enviar um fragmento, esperar o ACK, enviar o próximo (isso seria
+lento demais), a janela deslizante deixa o cliente enviar vários de uma vez.
+Com janela = 5, posso ter até 5 fragmentos 'voando' na rede sem confirmação.
+Quando o ACK do primeiro chega, a janela 'desliza' e libera um novo envio.
+É muito mais eficiente."
+
+--------------------------------------------------------------------------------
+4. SE O MONITOR PERGUNTAR: "QUAL A DIFERENÇA DO GBN PARA O SR?"
+--------------------------------------------------------------------------------
+Resposta:
+"No Go-Back-N, o servidor só aceita fragmentos na ordem certa. Se chega
+um fragmento fora de ordem, ele descarta e reenvía o último ACK válido.
+O cliente tem um único timer: se estourar, reenvia TODA a janela.
+
+No Selective Repeat, o servidor é mais inteligente: ele guarda fragmentos
+que chegam fora de ordem num buffer. O cliente tem um timer por fragmento:
+se estourar, reenvia SÓ aquele fragmento específico.
+
+No CP2 (sem erros), os dois se comportam igual: tudo chega na ordem."
+
+--------------------------------------------------------------------------------
+5. SE O MONITOR PERGUNTAR: "POR QUE VOCÊS USAM THREADS?"
+--------------------------------------------------------------------------------
+Resposta:
+"O cliente precisa fazer duas coisas ao mesmo tempo: enviar fragmentos
+e receber ACKs. Se fizesse em sequência, travaria esperando cada ACK
+antes de enviar o próximo, perdendo toda a vantagem da janela deslizante.
+Com threads, uma parte do código fica enviando e outra fica recebendo,
+em paralelo. Usamos threading.Lock() para proteger as variáveis que as
+duas partes acessam, evitando condição de corrida."
+
+--------------------------------------------------------------------------------
+6. SE O MONITOR PERGUNTAR: "COMO O ACK FUNCIONA NO GBN VS SR?"
+--------------------------------------------------------------------------------
+Resposta:
+"No GBN o ACK é cumulativo: ACK 3 significa 'recebi tudo até o fragmento 3'.
+No SR o ACK é individual: ACK 3 significa 'recebi especificamente o fragmento 3'.
+Por isso no GBN a base avança para ack_num + 1, e no SR marcamos o seq
+específico no dicionário de ACKs e deslizamos a base pela sequência contígua."
+
+--------------------------------------------------------------------------------
+7. SE O MONITOR PERGUNTAR: "POR QUE TEM TIMEOUT SE O CANAL É PERFEITO?"
+--------------------------------------------------------------------------------
+Resposta:
+"O timeout existe como mecanismo de segurança da máquina de estados. No CP2
+ele nunca deve disparar porque o canal é perfeito. Mas o código precisa
+estar lá porque o CP3 herda esta mesma estrutura — quando introduzirmos
+erros e perdas no CP3, o timeout já estará pronto para funcionar."
+
+--------------------------------------------------------------------------------
+8. O QUE NÃO EXISTE AINDA NESTE CHECKPOINT
+--------------------------------------------------------------------------------
+- NÃO há Checksum manual (vem no CP3)
+- NÃO há Criptografia RC4 (vem no CP3)
+- NÃO há NACK (vem no CP3, para SR com erros)
+- NÃO há simulação de erros nem de perdas (vem no CP3)
+
+--- BOA SORTE NA APRESENTAÇÃO! ---
